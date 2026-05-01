@@ -1,0 +1,61 @@
+# GitHub Action 自动训练流水线
+# 支持手动触发/代码推送自动触发训练
+# 训练日志实时同步，训练失败自动发通知
+name: YOLO K线形态训练
+run-name: 训练启动 ${{ github.actor }}
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch: # 支持手动触发
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    container:
+      image: ultralytics/ultralytics:latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: 安装依赖
+        run: |
+          pip install pandas matplotlib yfinance
+
+      - name: 启动训练
+        id: train
+        run: |
+          echo "🚀 开始训练..."
+          yolo detect train data=dataset/data.yaml model=yolov8n.pt epochs=100 batch=16 imgsz=640 project=results name=train
+          echo "✅ 训练完成"
+          echo "best_model_path=$(find results/train/weights -name "best.pt")" >> $GITHUB_OUTPUT
+      
+      - name: 上传训练结果到 Release
+        uses: softprops/action-gh-release@v2
+        if: success()
+        with:
+          tag_name: train-result-${{ github.run_id }}
+          name: 训练结果-${{ github.run_id }}
+          files: |
+            results/train/weights/best.pt
+            results/train/results.csv
+            results/train/confusion_matrix.png
+            results/train/*.png
+      
+      - name: 训练失败告警
+        uses: sarisia/actions-status-discord@v1
+        if: failure()
+        with:
+          webhook: ${{ secrets.NOTIFY_WEBHOOK }}
+          title: ❌ 训练失败
+          description: 运行ID：${{ github.run_id }}，请查看日志排查问题
+
+      - name: 训练成功通知
+        uses: sarisia/actions-status-discord@v1
+        if: success()
+        with:
+          webhook: ${{ secrets.NOTIFY_WEBHOOK }}
+          title: ✅ 训练完成
+          description: |
+            运行ID：${{ github.run_id }}
+            最优模型已上传到Release
+            查看日志：https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}

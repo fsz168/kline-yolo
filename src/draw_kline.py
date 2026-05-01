@@ -1,137 +1,92 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-纯matplotlib实现的K线绘图器
-- 输出精确640x640像素的纯K线图
-- 无坐标轴、无网格、无标题、无成交量副图
-- 阳线红色、阴线绿色，背景白色
+纯K线+成交量生成器：无任何文字/标注/干扰，仅保留K线+成交量柱
+输出尺寸：640x640，正方形，适合YOLO训练
 """
-
 import os
 import numpy as np
-import matplotlib
-matplotlib.use("Agg")
+import pandas as pd
 import matplotlib.pyplot as plt
-import matplotlib.patches as patches
+from matplotlib.gridspec import GridSpec
 
-# 全局关闭交互式后端
-plt.rcParams.update({
-    "font.family": "sans-serif",
-    "toolbar": "none",
-    "figure.facecolor": "white",
-    "axes.facecolor": "white",
-    "axes.spines.top": False,
-    "axes.spines.right": False,
-    "axes.spines.left": False,
-    "axes.spines.bottom": False,
-    "xtick.labelbottom": False,
-    "ytick.labelleft": False,
-    "xtick.bottom": False,
-    "ytick.left": False,
-})
+# 全局样式配置，完全无干扰
+plt.rcParams['font.size'] = 0
+plt.rcParams['axes.linewidth'] = 0
+plt.rcParams['xtick.bottom'] = False
+plt.rcParams['ytick.left'] = False
+plt.rcParams['xtick.labelbottom'] = False
+plt.rcParams['ytick.labelleft'] = False
+plt.rcParams['axes.grid'] = False
+plt.rcParams['figure.subplot.left'] = 0
+plt.rcParams['figure.subplot.right'] = 1
+plt.rcParams['figure.subplot.top'] = 1
+plt.rcParams['figure.subplot.bottom'] = 0
+plt.rcParams['figure.subplot.wspace'] = 0
+plt.rcParams['figure.subplot.hspace'] = 0
 
 
-def draw_kline_chart(
-    df,
-    save_path: str,
-    width: int = 640,
-    height: int = 640,
-    up_color: str = "#EF1310",   # 阳线红色
-    dn_color: str = "#0FC327",  # 阴线绿色
-    bg_color: str = "white",
-):
+def draw_kline_chart(df: pd.DataFrame, save_path: str) -> bool:
     """
-    将K线DataFrame绘制为精确尺寸的纯K线图
-
-    Args:
-        df: 必须包含 open, high, low, close 列（pandas.DataFrame）
-        save_path: 保存路径
-        width/height: 输出像素尺寸
+    生成纯K线+成交量图，无任何干扰元素
+    :param df: K线数据，必须包含 Date/Open/High/Low/Close/Volume 列
+    :param save_path: 保存路径
     """
-    if df.empty or len(df) < 2:
+    try:
+        df = df.copy().reset_index(drop=True)
+        # 最多取最近30根K线，保证形态清晰
+        df = df.tail(30).reset_index(drop=True)
+        n = len(df)
+        if n < 10:
+            return False
+        
+        # 归一化价格，适配画布大小
+        price_min = df[['Low', 'High']].min().min()
+        price_max = df[['Low', 'High']].max().max()
+        price_range = price_max - price_min if price_max > price_min else 1
+        # 归一化成交量
+        vol_max = df['Volume'].max()
+        vol_min = df['Volume'].min()
+        vol_range = vol_max - vol_min if vol_max > vol_min else 1
+
+        # 创建画布，640x640，无白边
+        fig = plt.figure(figsize=(6.4, 6.4), dpi=100, facecolor='white')
+        # 布局：K线占80%高度，成交量占20%高度
+        gs = GridSpec(5, 1, height_ratios=[4, 1, 0, 0, 0], hspace=0)
+        ax_kline = fig.add_subplot(gs[0])
+        ax_vol = fig.add_subplot(gs[1])
+
+        # 绘制K线
+        for i, row in df.iterrows():
+            open_p, high_p, low_p, close_p = row['Open'], row['High'], row['Low'], row['Close']
+            # 颜色：阳线红，阴线绿
+            color = '#ff4444' if close_p >= open_p else '#00cc66'
+            # 上下影线
+            ax_kline.plot([i, i], [low_p, high_p], color=color, linewidth=1.5)
+            # 实体
+            ax_kline.bar(i, height=abs(close_p - open_p), bottom=min(open_p, close_p), 
+                        width=0.7, color=color, edgecolor=color)
+        # 关闭K线轴所有刻度、边框
+        ax_kline.set_xlim(-1, n)
+        ax_kline.set_ylim(price_min, price_max)
+        ax_kline.axis('off')
+
+        # 绘制成交量
+        for i, row in df.iterrows():
+            open_p, close_p, vol = row['Open'], row['Close'], row['Volume']
+            color = '#ff4444' if close_p >= open_p else '#00cc66'
+            # 成交量归一化到0-1区间
+            vol_norm = (vol - vol_min) / vol_range * 0.9 + 0.05
+            ax_vol.bar(i, height=vol_norm, width=0.7, color=color, edgecolor=color)
+        # 关闭成交量轴所有刻度、边框
+        ax_vol.set_xlim(-1, n)
+        ax_vol.set_ylim(0, 1)
+        ax_vol.axis('off')
+
+        # 保存图片，无任何白边/额外信息
+        plt.savefig(save_path, dpi=100, bbox_inches='tight', pad_inches=0, facecolor='white')
+        plt.close(fig)
+        return True
+    except Exception as e:
+        plt.close('all')
         return False
-
-    # 兼容大小写列名
-    col_map = {}
-    for col in ["open", "Open", "high", "High", "low", "Low", "close", "Close"]:
-        if col in df.columns:
-            col_map["_target"] = col
-            break
-    if not col_map:
-        return False
-
-    # 统一列名
-    df = df.copy()
-    rename = {}
-    for std, alt in [("open", "Open"), ("high", "High"), ("low", "Low"), ("close", "Close")]:
-        if alt in df.columns and std not in df.columns:
-            rename[alt] = std
-    df = df.rename(columns=rename)
-
-    # 取最近20根K线
-    df = df.tail(20).reset_index(drop=True)
-
-    n = len(df)
-    open_prices = df["open"].values.astype(float)
-    high_prices = df["high"].values.astype(float)
-    low_prices = df["low"].values.astype(float)
-    close_prices = df["close"].values.astype(float)
-
-    # 计算Y轴范围，留5%边距
-    price_min = low_prices.min()
-    price_max = high_prices.max()
-    price_range = price_max - price_min
-    y_min = price_min - price_range * 0.05
-    y_max = price_max + price_range * 0.05
-
-    # 映射K线位置到[0,1]区间
-    margin = 0.05
-    bar_area = 1.0 - 2 * margin  # K线可占据的宽度比例
-
-    # 单根K线宽度（柱宽为可用的80%，间隙20%）
-    bar_w = bar_area / n * 0.80
-
-    fig = plt.figure(figsize=(width / 100, height / 100), dpi=100)
-    ax = fig.add_axes([0, 0, 1, 1])  # 填充整个figure
-    ax.set_facecolor(bg_color)
-    ax.set_xlim(0, 1)
-    ax.set_ylim(y_min, y_max)
-    ax.invert_yaxis()  # K线上面是高价，下面是低价
-
-    for i in range(n):
-        o, h, l, c = open_prices[i], high_prices[i], low_prices[i], close_prices[i]
-        x_center = margin + (i + 0.5) * (bar_area / n)
-        color = up_color if c >= o else dn_color
-
-        # 画上下影线（从low到high的垂直线）
-        ax.plot([x_center, x_center], [l, h], color=color, linewidth=1.0, zorder=2)
-
-        # 画实体（从open到close的矩形）
-        body_top = max(o, c)
-        body_bot = min(o, c)
-        if body_top == body_bot:
-            body_top += price_range * 0.005  # 光头光脚K线加小横线
-
-        rect = patches.FancyBboxPatch(
-            (x_center - bar_w / 2, body_bot),
-            bar_w,
-            body_top - body_bot,
-            boxstyle="square,pad=0",
-            facecolor=color,
-            edgecolor=color,
-            linewidth=1,
-            zorder=3,
-        )
-        ax.add_patch(rect)
-
-    # 确保输出尺寸精确
-    fig.set_size_inches(width / 100, height / 100)
-    fig.savefig(
-        save_path,
-        dpi=100,
-        format="png",
-        bbox_inches="tight",
-        pad_inches=0,
-        transparent=False,
-        facecolor=bg_color,
-    )
-    plt.close(fig)
-    return True
