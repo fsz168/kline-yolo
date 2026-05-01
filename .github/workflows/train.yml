@@ -15,7 +15,9 @@ jobs:
     container:
       image: ultralytics/ultralytics:latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
+        env:
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
       
       - name: 安装依赖
         run: |
@@ -46,6 +48,7 @@ jobs:
         if: failure()
         with:
           webhook: ${{ secrets.NOTIFY_WEBHOOK }}
+          ack_no_webhook: true
           title: ❌ 训练失败
           description: 运行ID：${{ github.run_id }}，请查看日志排查问题
 
@@ -54,6 +57,7 @@ jobs:
         if: success()
         with:
           webhook: ${{ secrets.NOTIFY_WEBHOOK }}
+          ack_no_webhook: true
           title: ✅ 训练完成
           description: |
             运行ID：${{ github.run_id }}
