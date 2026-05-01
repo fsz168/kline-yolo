@@ -1,7 +1,8 @@
 # YOLO训练数据集配置
-path: dataset
-train: images/train
-val: images/val
+# 注意：path是相对于训练命令执行目录（cd src后），指向dataset父目录
+path: .
+train: dataset/images/train
+val: dataset/images/val
 
 # 识别的形态类别，覆盖所有你关注的反转+趋势形态
 names:
