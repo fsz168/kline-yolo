@@ -1,5 +1,5 @@
 # YOLO训练数据集配置
-path: ../dataset
+path: .
 train: images/train
 val: images/val
 

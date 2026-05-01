@@ -35,10 +35,10 @@ while true; do
                 fi
                 break
             fi
-            # 每30秒刷新一次状态
-            sleep 30
+          # 每5分钟刷新一次状态
+          sleep 300
         done
     fi
-    # 每2分钟检查一次是否有新训练任务启动
-    sleep 120
+    # 每5分钟检查一次是否有新训练任务启动
+    sleep 300
 done

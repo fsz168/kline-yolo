@@ -27,6 +27,7 @@ jobs:
         id: train
         run: |
           echo "🚀 开始训练..."
+          cd src
           yolo detect train data=dataset/data.yaml model=yolov8n.pt epochs=100 batch=16 imgsz=640 project=results name=train
           echo "✅ 训练完成"
           echo "best_model_path=$(find results/train/weights -name "best.pt")" >> $GITHUB_OUTPUT
